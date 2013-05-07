@@ -14,7 +14,7 @@ async.series({
         var conn = new Connection(function(sftp) {
             pullDirectory(sftp, config.master.path, localBase, function() {
                 console.log('Download Complete.');
-                conn.end();
+                conn.close();
                 done();
             });
         });
@@ -26,18 +26,18 @@ async.series({
             var conn = new Connection(function(sftp) {
                 sftp.opendir(item.path, function(err, handle) {
                     if (!err) {
-                        sftp.rename(item.path, item.path + moment().format('YYYY-MM-DD HH:mm'), function(err) {
+                        sftp.rename(item.path, item.path + '-' + moment().format('YYYY-MM-DD HH:mm'), function(err) {
                             if (err) throw err;
                             pushDirectory(sftp, item.path, localBase, function() {
                                 console.log('Sync ' + item.connect.host + ' Complete.');
-                                conn.end();
+                                conn.close();
                                 done();
                             });
                         });
                     } else {
                         pushDirectory(sftp, item.path, localBase, function() {
                             console.log('Sync ' + item.connect.host + ' Complete.');
-                            conn.end();
+                            conn.close();
                             done();
                         });
                     }
@@ -63,6 +63,7 @@ function(err) {
 /**
  * 从主服务器上获取最新代码到本地
  */
+
 function pullDirectory(sftp, remotePath, localPath, callback) {
     sftp.opendir(remotePath, function(err, handle) {
         if (err) throw err;
@@ -98,6 +99,7 @@ function pullDirectory(sftp, remotePath, localPath, callback) {
 /**
  * 同步从服务器
  */
+
 function pushDirectory(sftp, remotePath, localPath, callback) {
     var list = fs.readdirSync(localPath);
     sftp.mkdir(remotePath, function(err) {
@@ -111,6 +113,7 @@ function pushDirectory(sftp, remotePath, localPath, callback) {
             } else if (stat.isDirectory()) {
                 pushDirectory(sftp, remotePath + '/' + item, filepath, done);
             } else {
+                console.log('Transferring >> ' + filepath);
                 sftp.fastPut(filepath, remotePath + '/' + item, function(err) {
                     if (err) throw err;
                     done();

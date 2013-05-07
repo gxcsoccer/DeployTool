@@ -1,9 +1,7 @@
 var SSH = require('ssh2'),
     fs = require('fs'),
     path = require('path'),
-    async = require('async'),
-    EventEmitter = require('events').EventEmitter,
-    util = require('util');
+    async = require('async');
 
 var Connection = function(callback) {
         this.conn = new SSH();
@@ -16,11 +14,10 @@ var Connection = function(callback) {
         this.conn.on('ready', function() {
             console.log('Connection :: ready');
 
-            conn.sftp(function(err, sftp) {
+            me.conn.sftp(function(err, sftp) {
                 if (err) throw err;
 
                 callback && callback(sftp);
-                me.emit('ready', sftp);
             });
         });
 
@@ -33,11 +30,7 @@ var Connection = function(callback) {
         this.conn.on('close', function(had_error) {
             console.log('Connection :: close');
         });
-
-        EventEmitter.call(this);
     };
-
-util.inherits(Connection, EventEmitter);
 
 module.exports = Connection;
 

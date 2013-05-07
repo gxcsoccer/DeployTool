@@ -1,80 +1,124 @@
-var SSH = require('ssh2'),
+var Connection = require('./connection'),
     fs = require('fs'),
     path = require('path'),
     async = require('async'),
-    config = require('./config.json');
+    wrench = require('wrench'),
+    moment = require('moment'),
+    config = require('./config.json'),
+    localBase = config.localPath;
 
-var conn = new SSH(),
-    baseDir = '/home/iptv/epg/tomcat/webapps/EPG/Turkcell',
-    localBase = 'D:\\gaoxiaochen\\Turkcell';
+async.series({
+    one: function(done) {
+        fs.existsSync(localBase) && wrench.rmdirSyncRecursive(localBase);
 
-fs.rmdirSync(localBase);
+        var conn = new Connection(function(sftp) {
+            pullDirectory(sftp, config.master.path, localBase, function() {
+                console.log('Download Complete.');
+                conn.end();
+                done();
+            });
+        });
 
-function copyDirectory(sftp, dir, callback) {
-    console.log('opendir: ' + dir);
-    sftp.opendir(dir, function(err, handle) {
+        conn.connect(config.master.connect)
+    },
+    two: function(done) {
+        async.eachSeries(config.slaves || [], function(item, done) {
+            var conn = new Connection(function(sftp) {
+                sftp.opendir(item.path, function(err, handle) {
+                    if (!err) {
+                        sftp.rename(item.path, item.path + moment().format('YYYY-MM-DD HH:mm'), function(err) {
+                            if (err) throw err;
+                            pushDirectory(sftp, item.path, localBase, function() {
+                                console.log('Sync ' + item.connect.host + ' Complete.');
+                                conn.end();
+                                done();
+                            });
+                        });
+                    } else {
+                        pushDirectory(sftp, item.path, localBase, function() {
+                            console.log('Sync ' + item.connect.host + ' Complete.');
+                            conn.end();
+                            done();
+                        });
+                    }
+                });
+            });
+
+            conn.connect(item.connect)
+        },
+
+        function(err) {
+            if (err) throw err;
+            done();
+        });
+    }
+},
+
+
+function(err) {
+    // results is now equal to ['one', 'two']
+    console.log("All Complete.");
+});
+
+/**
+ * 从主服务器上获取最新代码到本地
+ */
+function pullDirectory(sftp, remotePath, localPath, callback) {
+    sftp.opendir(remotePath, function(err, handle) {
         if (err) throw err;
         sftp.readdir(handle, function(err, list) {
             if (err) throw err;
 
-            var relativePath = path.relative(baseDir, dir),
-                localPath = path.resolve(localBase, relativePath);
             if (!fs.existsSync(localPath)) {
                 fs.mkdirSync(localPath);
             }
 
-            async.eachSeries(list || [], function(item, next) {
-                var filepath = dir + '/' + item.filename;
+            async.eachLimit(list || [], 25, function(item, done) {
+                var filepath = remotePath + '/' + item.filename;
 
-                console.log(filepath);
-                console.log(item.longname);
-
+                console.log('Transferring << ' + filepath);
                 if (/^(\.){1,2}?$/.test(item.filename)) {
-                    next();
+                    done();
                 } else if (item.longname[0] == 'd') {
-                    copyDirectory(sftp, filepath, next);
+                    pullDirectory(sftp, filepath, path.join(localPath, item.filename), done);
                 } else {
                     sftp.fastGet(filepath, path.join(localPath, item.filename), function(err) {
                         if (err) throw err;
-                        next();
+                        done();
                     });
                 }
             }, function(err) {
+                if (err) throw err;
                 callback();
             });
         });
     });
 }
 
-conn.on('connect', function() {
-    console.log('Connection :: connect');
-});
-
-conn.on('ready', function() {
-    console.log('Connection :: ready');
-
-    conn.sftp(function(err, sftp) {
+/**
+ * 同步从服务器
+ */
+function pushDirectory(sftp, remotePath, localPath, callback) {
+    var list = fs.readdirSync(localPath);
+    sftp.mkdir(remotePath, function(err) {
         if (err) throw err;
-        copyDirectory(sftp, baseDir, function() {
-            console.log('Transfer Complete.');
-            conn.end();
-        });
+
+        async.eachLimit(list || [], 25, function(item, done) {
+            var filepath = path.join(localPath, item),
+                stat = fs.statSync(filepath);
+            if (/^(\.){1,2}?$/.test(item)) {
+                done();
+            } else if (stat.isDirectory()) {
+                pushDirectory(sftp, remotePath + '/' + item, filepath, done);
+            } else {
+                sftp.fastPut(filepath, remotePath + '/' + item, function(err) {
+                    if (err) throw err;
+                    done();
+                });
+            }
+        }, function(err) {
+            if (err) throw err;
+            callback();
+        })
     });
-});
-
-conn.on('keyboard-interactive', function(name, instructions, instructionsLang, prompts, finish) {
-    finish([config.password]);
-});
-
-conn.on('error', function(err) {
-    console.log('Connection :: error :: ' + err);
-});
-conn.on('end', function() {
-    console.log('Connection :: end');
-});
-conn.on('close', function(had_error) {
-    console.log('Connection :: close');
-});
-
-// 连接
-conn.connect(config);
+}

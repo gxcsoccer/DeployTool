@@ -7,6 +7,20 @@ var Connection = require('./connection'),
     config = require('./config.json'),
     localBase = config.localPath;
 
+/***********************
+var logStream = fs.createWriteStream('D:\\gaoxiaochen\\log.txt', {
+    flags: 'w',
+    encoding: null,
+    mode: 0666
+});
+
+var console = {
+    log: function(str) {
+        logStream.write(str);
+    }
+}
+************************/
+
 async.series({
     one: function(done) {
         fs.existsSync(localBase) && wrench.rmdirSyncRecursive(localBase);
@@ -54,16 +68,13 @@ async.series({
     }
 },
 
-
 function(err) {
-    // results is now equal to ['one', 'two']
     console.log("All Complete.");
 });
 
 /**
  * 从主服务器上获取最新代码到本地
  */
-
 function pullDirectory(sftp, remotePath, localPath, callback) {
     sftp.opendir(remotePath, function(err, handle) {
         if (err) throw err;
@@ -99,7 +110,6 @@ function pullDirectory(sftp, remotePath, localPath, callback) {
 /**
  * 同步从服务器
  */
-
 function pushDirectory(sftp, remotePath, localPath, callback) {
     var list = fs.readdirSync(localPath);
     sftp.mkdir(remotePath, function(err) {
